@@ -43,6 +43,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
 
       let finalSystemInstruction = tutor.persona;
     
+      // Adiciona a instrução de RAG condicionalmente à instrução do sistema
+      if (tutor.knowledge && tutor.knowledge.trim().length > 0) {
+        finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Sua principal fonte de conhecimento é um documento de contexto fornecido a seguir. Você DEVE basear suas respostas exclusivamente neste documento.\n- Se a pergunta do aluno não puder ser respondida usando o contexto, você deve dizer claramente: "Não encontrei a resposta para isso no material de apoio."\n- NÃO use conhecimento externo ou geral.\n\n--- INÍCIO DO CONTEXTO ---\n${tutor.knowledge}\n--- FIM DO CONTEXTO ---`;
+      } else {
+        finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Você NÃO recebeu um documento de contexto. Baseie suas respostas em seu conhecimento geral sobre o assunto. Se o aluno mencionar um documento ou material de apoio, informe-o de que nenhum foi fornecido a você.`;
+      }
+
+      if (tutor.webSources && tutor.webSources.length > 0) {
+        const sourcesList = tutor.webSources.map(s => `- ${s.title}: ${s.uri}`).join('\n');
+        finalSystemInstruction += `\n\n### FONTES DA WEB PARA CONSULTA ###\nAo usar a busca na web, dê prioridade para encontrar informações nas seguintes fontes, se relevantes para a pergunta do aluno:\n${sourcesList}`;
+      }
+
       if (tutor.tools?.adaptiveLearning) {
           finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você é um tutor adaptativo. Sua principal diretriz é avaliar continuamente o nível de compreensão do aluno com base em suas respostas. - Se o aluno demonstrar dificuldade ou cometer erros, você deve simplificar o conteúdo, usar analogias mais simples e dividir os problemas em etapas menores. - Se o aluno mostrar domínio e responder corretamente, você deve gradualmente aumentar a complexidade, introduzir tópicos relacionados e fazer perguntas mais desafiadoras. O objetivo é personalizar a experiência de aprendizado em tempo real para se adequar ao ritmo do aluno, mantendo-o engajado e desafiado na medida certa. Faça essa adaptação de forma natural na conversa.";
       }
@@ -54,6 +66,15 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
       }
       if (tutor.tools?.scenarioSimulator) {
           finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você também é um Simulador de Cenários. Se o aluno pedir para iniciar uma simulação ou um role-play, você deve assumir o papel de um personagem (como uma figura histórica, um personagem de livro, etc.) e interagir com o aluno para ajudá-lo a praticar ou entender uma situação.";
+      }
+       if (tutor.tools?.selfReflection) {
+        finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você deve incentivar a autorreflexão. Após explicar um conceito ou depois que o aluno responder a uma pergunta, faça perguntas de acompanhamento como 'O que foi mais desafiador para você entender sobre isso?', 'Como você explicaria isso com suas próprias palavras?', ou 'Onde você acha que poderia aplicar este conceito?'.";
+      }
+      if (tutor.tools?.chainOfThought) {
+          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Ao resolver um problema ou responder a uma pergunta complexa, você DEVE usar um raciocínio de Cadeia de Pensamento (Chain-of-Thought). Explique seu processo passo a passo, mostrando como você chegou à solução. Isso ajuda o aluno a seguir sua lógica.";
+      }
+      if (tutor.tools?.treeOfThoughts) {
+          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Para problemas que podem ter múltiplas abordagens, você deve usar um método de Árvore de Pensamentos (Tree-of-Thoughts). Explore diferentes caminhos ou soluções em potencial, apresente-os ao aluno e discuta os prós e contras de cada um para guiar à melhor resposta.";
       }
       
       const config: any = { systemInstruction: finalSystemInstruction };
@@ -91,34 +112,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
 
     const userMessage: ChatMessage = { author: MessageAuthor.USER, text: input };
     setMessages(prev => [...prev, userMessage]);
-    const currentInput = input;
+    const messageToSend = input;
     setInput('');
     setIsLoading(true);
 
     try {
-      let promptWithContext = currentInput;
-
-      if (tutor.knowledge && tutor.knowledge.trim().length > 0) {
-        promptWithContext = `
-Você é um assistente de tutoria. Sua tarefa é responder à pergunta do aluno usando APENAS as informações fornecidas no documento de contexto abaixo.
-
-Analise o documento e encontre os trechos mais relevantes para a pergunta. Baseie sua resposta inteiramente nesses trechos.
-
-Se a resposta não puder ser encontrada no documento, afirme claramente: "Não encontrei a resposta para isso no material de apoio." Não tente responder com conhecimento geral.
-
-### CONTEXTO DO DOCUMENTO ###
-${tutor.knowledge}
-### FIM DO CONTEXTO ###
-
-### PERGUNTA DO ALUNO ###
-${currentInput}
-### FIM DA PERGUNTA ###
-
-Sua Resposta:
-        `.trim();
-      }
-
-      const response = await chat.sendMessage({ message: promptWithContext });
+      // A lógica de contexto foi movida para a instrução de sistema na inicialização.
+      // Agora, apenas enviamos a mensagem do usuário diretamente.
+      const response = await chat.sendMessage({ message: messageToSend });
       const modelResponseText = response.text;
       
       const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -143,7 +144,7 @@ Sua Resposta:
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, tutor, chat]);
+  }, [input, isLoading, chat]);
 
  const handleGenerateQuiz = useCallback(async () => {
     if (!chat || isLoading) return;

@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Tutor } from '../types';
 import { ICONS, SCHOOL_SUBJECTS, PERSONA_EXAMPLES } from '../constants';
+import { GoogleGenAI } from '@google/genai';
+
 
 // Declara as variáveis globais carregadas pelos scripts em index.html
 declare var mammoth: any;
 declare var pdfjsLib: any;
+
+const GEMINI_API_KEY = "AIzaSyB_FQvyfvHCpzyr8rJWUZxPvwKN5BQnQa8";
+
 
 interface CreateTutorModalProps {
   onClose: () => void;
@@ -33,10 +38,19 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     scenarioSimulator: false,
     adaptiveLearning: false,
     flashcardGenerator: false,
+    selfReflection: false,
+    chainOfThought: false,
+    treeOfThoughts: false,
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados para RAG da Web
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState<{ uri: string; title: string }[]>([]);
+  const [addedWebSources, setAddedWebSources] = useState<{ uri: string; title: string }[]>([]);
 
   const isEditing = !!existingTutor;
 
@@ -52,6 +66,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
               content: existingTutor.knowledge 
           }]);
       }
+      setAddedWebSources(existingTutor.webSources || []);
       setTools({
           webSearch: existingTutor.tools?.webSearch || false,
           quizGenerator: existingTutor.tools?.quizGenerator || false,
@@ -59,6 +74,9 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
           scenarioSimulator: existingTutor.tools?.scenarioSimulator || false,
           adaptiveLearning: existingTutor.tools?.adaptiveLearning || false,
           flashcardGenerator: existingTutor.tools?.flashcardGenerator || false,
+          selfReflection: existingTutor.tools?.selfReflection || false,
+          chainOfThought: existingTutor.tools?.chainOfThought || false,
+          treeOfThoughts: existingTutor.tools?.treeOfThoughts || false,
       })
     }
   }, [existingTutor]);
@@ -125,6 +143,51 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     setFiles(prev => prev.filter(file => file.id !== idToRemove));
   };
 
+  const handleWebSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    setSearchResults([]);
+    try {
+        if (!GEMINI_API_KEY) {
+            throw new Error("Chave de API do Gemini não encontrada.");
+        }
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Encontre artigos e fontes confiáveis sobre: "${searchQuery}"`,
+            config: {
+                tools: [{ googleSearch: {} }],
+            },
+        });
+
+        const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+        const sources = groundingChunks
+            ?.map((chunk: any) => chunk.web)
+            .filter((web: any) => web && web.uri && web.title);
+
+        if (sources && sources.length > 0) {
+            setSearchResults(sources);
+        } else {
+            alert("Nenhum resultado encontrado. Tente refinar sua busca.");
+        }
+    } catch (error) {
+        console.error("Erro na busca da web:", error);
+        alert("Ocorreu um erro ao realizar a busca na web.");
+    } finally {
+        setIsSearching(false);
+    }
+  };
+
+  const handleAddSource = (source: { uri: string; title: string }) => {
+      if (!addedWebSources.some(s => s.uri === source.uri)) {
+          setAddedWebSources(prev => [...prev, source]);
+      }
+  };
+
+  const handleRemoveSource = (uriToRemove: string) => {
+      setAddedWebSources(prev => prev.filter(s => s.uri !== uriToRemove));
+  };
+
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -140,7 +203,12 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
       `Conteúdo do arquivo: ${file.name}\n\n${file.content}`
     ).join('\n\n---\n\n');
     
-    onSave({ name, subject, persona, knowledge, tools });
+    const finalTools = { ...tools };
+    if (addedWebSources.length > 0) {
+        finalTools.webSearch = true;
+    }
+
+    onSave({ name, subject, persona, knowledge, tools: finalTools, webSources: addedWebSources });
   };
   
   const handleToolChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -245,32 +313,14 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
             <div className="border-t border-gray-200 pt-6">
                 <h3 className="text-lg font-medium text-gray-900">Ferramentas e Capacidades</h3>
                 <p className="mt-1 text-sm text-gray-600">Melhore seu tutor com capacidades adicionais.</p>
-                <div className="mt-4 space-y-4">
-                    <div className="relative flex items-start">
-                        <div className="flex items-center h-5">
-                            <input id="adaptiveLearning" name="adaptiveLearning" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.adaptiveLearning} onChange={handleToolChange} />
-                        </div>
-                        <div className="ml-3 text-sm">
-                            <label htmlFor="adaptiveLearning" className="font-medium text-gray-700">Habilitar Aprendizagem Adaptativa</label>
-                            <p className="text-gray-500">Permite que o tutor avalie continuamente o progresso do aluno e ajuste a dificuldade do conteúdo para se adequar ao seu nível de conhecimento.</p>
-                        </div>
-                    </div>
-                     <div className="relative flex items-start">
-                        <div className="flex items-center h-5">
-                            <input id="flashcardGenerator" name="flashcardGenerator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.flashcardGenerator} onChange={handleToolChange} />
-                        </div>
-                        <div className="ml-3 text-sm">
-                            <label htmlFor="flashcardGenerator" className="font-medium text-gray-700">Habilitar Gerador de Flashcards</label>
-                            <p className="text-gray-500">Permite que o tutor crie flashcards de pergunta e resposta com base no conteúdo para ajudar na revisão do aluno.</p>
-                        </div>
-                    </div>
+                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                     <div className="relative flex items-start">
                         <div className="flex items-center h-5">
                             <input id="webSearch" name="webSearch" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.webSearch} onChange={handleToolChange} />
                         </div>
                         <div className="ml-3 text-sm">
-                            <label htmlFor="webSearch" className="font-medium text-gray-700">Habilitar Busca na Web</label>
-                            <p className="text-gray-500">Permite que o tutor pesquise na internet para responder perguntas sobre eventos atuais ou informações não contidas na base de conhecimento. As fontes serão citadas.</p>
+                            <label htmlFor="webSearch" className="font-medium text-gray-700">Busca na Web</label>
+                            <p className="text-gray-500">Permite que o tutor pesquise na internet para obter informações atualizadas.</p>
                         </div>
                     </div>
                     <div className="relative flex items-start">
@@ -278,8 +328,17 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                             <input id="quizGenerator" name="quizGenerator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.quizGenerator} onChange={handleToolChange} />
                         </div>
                         <div className="ml-3 text-sm">
-                            <label htmlFor="quizGenerator" className="font-medium text-gray-700">Habilitar Gerador de Quiz</label>
-                            <p className="text-gray-500">Permite que o tutor crie perguntas de múltipla escolha ou dissertativas para testar o conhecimento do aluno sobre um tópico.</p>
+                            <label htmlFor="quizGenerator" className="font-medium text-gray-700">Gerador de Quiz</label>
+                            <p className="text-gray-500">Permite que o tutor crie quizzes para testar o conhecimento do aluno.</p>
+                        </div>
+                    </div>
+                    <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="flashcardGenerator" name="flashcardGenerator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.flashcardGenerator} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="flashcardGenerator" className="font-medium text-gray-700">Gerador de Flashcards</label>
+                            <p className="text-gray-500">Cria flashcards para ajudar na revisão de conceitos chave.</p>
                         </div>
                     </div>
                     <div className="relative flex items-start">
@@ -287,8 +346,8 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                             <input id="conceptExplainer" name="conceptExplainer" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.conceptExplainer} onChange={handleToolChange} />
                         </div>
                         <div className="ml-3 text-sm">
-                            <label htmlFor="conceptExplainer" className="font-medium text-gray-700">Habilitar Explicador de Conceitos</label>
-                            <p className="text-gray-500">Permite que o tutor divida tópicos complexos em explicações simples, usando analogias e exemplos fáceis de entender.</p>
+                            <label htmlFor="conceptExplainer" className="font-medium text-gray-700">Explicador de Conceitos</label>
+                            <p className="text-gray-500">Divide tópicos complexos em explicações simples e com analogias.</p>
                         </div>
                     </div>
                     <div className="relative flex items-start">
@@ -296,57 +355,164 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                             <input id="scenarioSimulator" name="scenarioSimulator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.scenarioSimulator} onChange={handleToolChange} />
                         </div>
                         <div className="ml-3 text-sm">
-                            <label htmlFor="scenarioSimulator" className="font-medium text-gray-700">Habilitar Simulador de Cenários</label>
-                            <p className="text-gray-500">Permite que o tutor atue como um personagem (figura histórica, personagem de livro, etc.) para criar cenários de role-playing interativos.</p>
+                            <label htmlFor="scenarioSimulator" className="font-medium text-gray-700">Simulador de Cenários</label>
+                            <p className="text-gray-500">Cria cenários de role-playing interativos para praticar habilidades.</p>
+                        </div>
+                    </div>
+                     <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="adaptiveLearning" name="adaptiveLearning" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.adaptiveLearning} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="adaptiveLearning" className="font-medium text-gray-700">Aprendizagem Adaptativa</label>
+                            <p className="text-gray-500">Ajusta a dificuldade do conteúdo com base no progresso do aluno.</p>
+                        </div>
+                    </div>
+                    <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="selfReflection" name="selfReflection" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.selfReflection} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="selfReflection" className="font-medium text-gray-700">Prompts de Autorreflexão</label>
+                            <p className="text-gray-500">Incentiva o aluno a refletir sobre seu aprendizado e compreensão.</p>
+                        </div>
+                    </div>
+                    <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="chainOfThought" name="chainOfThought" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.chainOfThought} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="chainOfThought" className="font-medium text-gray-700">Cadeia de Pensamento (CoT)</label>
+                            <p className="text-gray-500">Instrui o tutor a explicar seu raciocínio passo a passo.</p>
+                        </div>
+                    </div>
+                    <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="treeOfThoughts" name="treeOfThoughts" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.treeOfThoughts} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="treeOfThoughts" className="font-medium text-gray-700">Árvore de Pensamentos (ToT)</label>
+                            <p className="text-gray-500">Permite que o tutor explore e apresente múltiplas soluções para um problema.</p>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="border-t border-gray-200 pt-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Base de Conhecimento (RAG)
-                </label>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
-                    <div className="space-y-1 text-center">
-                        {ICONS.UPLOAD}
-                        <div className="flex text-sm text-gray-600">
-                            <label
-                                htmlFor="file-upload"
-                                className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
-                            >
-                                <span>Carregar arquivos</span>
-                                <input ref={fileInputRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".txt,.md,.pdf,.docx" multiple />
-                            </label>
-                            <p className="pl-1">ou arraste e solte</p>
-                        </div>
-                        <p className="text-xs text-gray-500">Arquivos .txt, .md, .pdf, .docx (Máx {MAX_FILE_SIZE_MB}MB)</p>
-                    </div>
+            <div className="border-t border-gray-200 pt-6 space-y-6">
+                <div>
+                    <h3 className="text-lg font-medium text-gray-900">Base de Conhecimento (RAG)</h3>
+                    <p className="mt-1 text-sm text-gray-600">Forneça ao seu tutor conhecimento específico a partir de arquivos ou fontes da web.</p>
                 </div>
-                {isProcessing && (
-                    <div className="mt-4 text-center">
-                        <p className="text-sm font-semibold text-blue-600">Processando arquivos...</p>
+                
+                {/* RAG de Arquivos */}
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Adicionar de Arquivos
+                    </label>
+                    <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
+                        <div className="space-y-1 text-center">
+                            {ICONS.UPLOAD}
+                            <div className="flex text-sm text-gray-600">
+                                <label
+                                    htmlFor="file-upload"
+                                    className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
+                                >
+                                    <span>Carregar arquivos</span>
+                                    <input ref={fileInputRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".txt,.md,.pdf,.docx" multiple />
+                                </label>
+                                <p className="pl-1">ou arraste e solte</p>
+                            </div>
+                            <p className="text-xs text-gray-500">Arquivos .txt, .md, .pdf, .docx (Máx {MAX_FILE_SIZE_MB}MB)</p>
+                        </div>
                     </div>
-                )}
-                {files.length > 0 && (
-                    <div className="mt-4 space-y-2">
-                        <h4 className="font-medium text-sm text-gray-600">Arquivos Carregados:</h4>
-                        <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
-                            {files.map((file) => (
-                                <li key={file.id} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
-                                    <div className="w-0 flex-1 flex items-center">
-                                        <span className="ml-2 flex-1 w-0 truncate">{file.name}</span>
-                                    </div>
-                                    <div className="ml-4 flex-shrink-0">
-                                        <button type="button" onClick={() => handleRemoveFile(file.id)} className="font-medium text-red-600 hover:text-red-500" aria-label={`Remover ${file.name}`}>
-                                            {ICONS.TRASH}
-                                        </button>
-                                    </div>
-                                </li>
-                            ))}
-                        </ul>
+                    {isProcessing && (
+                        <div className="mt-4 text-center">
+                            <p className="text-sm font-semibold text-blue-600 flex items-center justify-center gap-2"> {ICONS.SPINNER} Processando arquivos...</p>
+                        </div>
+                    )}
+                    {files.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                            <h4 className="font-medium text-sm text-gray-600">Arquivos Carregados:</h4>
+                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
+                                {files.map((file) => (
+                                    <li key={file.id} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
+                                        <div className="w-0 flex-1 flex items-center">
+                                            <span className="ml-2 flex-1 w-0 truncate">{file.name}</span>
+                                        </div>
+                                        <div className="ml-4 flex-shrink-0">
+                                            <button type="button" onClick={() => handleRemoveFile(file.id)} className="font-medium text-red-600 hover:text-red-500" aria-label={`Remover ${file.name}`}>
+                                                {ICONS.TRASH}
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+
+                {/* RAG da Web */}
+                <div>
+                     <label htmlFor="web-search" className="block text-sm font-medium text-gray-700 mb-1">
+                        Adicionar da Web
+                    </label>
+                    <div className="flex items-center gap-2">
+                         <input
+                            type="text"
+                            id="web-search"
+                            value={searchQuery}
+                            onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="Pesquise por um tópico..."
+                            className="flex-grow px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleWebSearch(); }}}
+                        />
+                        <button type="button" onClick={handleWebSearch} disabled={isSearching} className="py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 disabled:bg-indigo-400 flex items-center gap-2">
+                            {isSearching ? ICONS.SPINNER : ICONS.WEB}
+                            <span>{isSearching ? 'Buscando...' : 'Buscar'}</span>
+                        </button>
                     </div>
-                )}
+
+                    {searchResults.length > 0 && (
+                         <div className="mt-4 space-y-2">
+                             <h4 className="font-medium text-sm text-gray-600">Resultados da Pesquisa:</h4>
+                             <ul className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-40 overflow-y-auto">
+                                 {searchResults.map((source) => (
+                                     <li key={source.uri} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm hover:bg-gray-50">
+                                         <div className="w-0 flex-1 flex items-center">
+                                             <a href={source.uri} target="_blank" rel="noopener noreferrer" className="ml-2 flex-1 w-0 truncate text-indigo-600 hover:underline" title={source.title}>{source.title}</a>
+                                         </div>
+                                         <div className="ml-4 flex-shrink-0">
+                                             <button type="button" onClick={() => handleAddSource(source)} disabled={addedWebSources.some(s => s.uri === source.uri)} className="font-medium text-sm text-green-600 hover:text-green-800 disabled:text-gray-400 disabled:cursor-not-allowed">
+                                                Adicionar
+                                             </button>
+                                         </div>
+                                     </li>
+                                 ))}
+                             </ul>
+                         </div>
+                    )}
+
+                    {addedWebSources.length > 0 && (
+                        <div className="mt-4 space-y-2">
+                            <h4 className="font-medium text-sm text-gray-600">Fontes da Web Adicionadas:</h4>
+                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
+                                {addedWebSources.map((source) => (
+                                    <li key={source.uri} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
+                                        <div className="w-0 flex-1 flex items-center">
+                                            <span className="ml-2 flex-1 w-0 truncate" title={source.title}>{source.title}</span>
+                                        </div>
+                                        <div className="ml-4 flex-shrink-0">
+                                            <button type="button" onClick={() => handleRemoveSource(source.uri)} className="font-medium text-red-600 hover:text-red-500" aria-label={`Remover ${source.title}`}>
+                                                {ICONS.TRASH}
+                                            </button>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+
             </div>
           </div>
           <div className="mt-8 flex justify-end gap-4">
@@ -359,11 +525,11 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
             </button>
             <button
               type="submit"
-              disabled={isProcessing}
+              disabled={isProcessing || isSearching}
               className="py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {isProcessing && ICONS.SPINNER}
-              {isProcessing ? 'Processando...' : (isEditing ? 'Salvar Alterações' : 'Criar Tutor')}
+              {(isProcessing || isSearching) && ICONS.SPINNER}
+              {(isProcessing || isSearching) ? 'Processando...' : (isEditing ? 'Salvar Alterações' : 'Criar Tutor')}
             </button>
           </div>
         </form>

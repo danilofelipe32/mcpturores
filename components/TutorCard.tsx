@@ -95,6 +95,21 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor, onSelect, onDelete, onEdit
                 Conversar com o Tutor →
              </span>
              <div className="flex items-center gap-3 text-gray-400">
+                {tutor.tools?.treeOfThoughts && (
+                    <div title="Árvore de Pensamentos Habilitada">
+                        {ICONS.TREE_OF_THOUGHTS}
+                    </div>
+                )}
+                {tutor.tools?.chainOfThought && (
+                    <div title="Cadeia de Pensamento Habilitada">
+                        {ICONS.CHAIN_OF_THOUGHT}
+                    </div>
+                )}
+                 {tutor.tools?.selfReflection && (
+                    <div title="Prompts de Autorreflexão Habilitados">
+                        {ICONS.SELF_REFLECTION}
+                    </div>
+                )}
                 {tutor.tools?.flashcardGenerator && (
                   <div title="Gerador de Flashcards Habilitado">
                     {ICONS.FLASHCARD}

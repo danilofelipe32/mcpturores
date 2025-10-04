@@ -5,6 +5,7 @@ export interface Tutor {
   persona: string;
   createdAt: string;
   knowledge?: string;
+  webSources?: { uri: string; title: string }[];
   tools?: {
     webSearch?: boolean;
     quizGenerator?: boolean;
@@ -12,6 +13,9 @@ export interface Tutor {
     scenarioSimulator?: boolean;
     adaptiveLearning?: boolean;
     flashcardGenerator?: boolean;
+    selfReflection?: boolean;
+    chainOfThought?: boolean;
+    treeOfThoughts?: boolean;
   }
 }
 
