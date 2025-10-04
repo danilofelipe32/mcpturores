@@ -49,7 +49,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
   // Estados para RAG da Web
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<{ uri: string; title: string }[]>([]);
+  const [searchResults, setSearchResults] = useState<{ uri: string; title: string; summary: string; }[]>([]);
   const [addedWebSources, setAddedWebSources] = useState<{ uri: string; title: string }[]>([]);
 
   const isEditing = !!existingTutor;
@@ -154,16 +154,41 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
         const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Encontre artigos e fontes confiáveis sobre: "${searchQuery}"`,
+            contents: `Resuma o tópico "${searchQuery}" em alguns parágrafos, citando suas fontes.`,
             config: {
                 tools: [{ googleSearch: {} }],
             },
         });
 
         const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        const sources = groundingChunks
-            ?.map((chunk: any) => chunk.web)
-            .filter((web: any) => web && web.uri && web.title);
+        
+        const sourceMap = new Map<string, { title: string; summaries: string[] }>();
+        
+        groundingChunks?.forEach((chunk: any) => {
+            const uri = chunk.web?.uri;
+            const title = chunk.web?.title;
+            const context = chunk.retrievedContext?.text;
+            
+            if (uri && title) {
+                if (!sourceMap.has(uri)) {
+                    sourceMap.set(uri, { title, summaries: [] });
+                }
+                if (context) {
+                    const existingSummaries = sourceMap.get(uri)!.summaries;
+                    if (!existingSummaries.includes(context)) {
+                        existingSummaries.push(context);
+                    }
+                }
+            }
+        });
+
+        const sources = Array.from(sourceMap.entries()).map(([uri, data]) => ({
+            uri,
+            title: data.title,
+            summary: data.summaries.length > 0 
+                ? data.summaries.join(' ... ') 
+                : "Não foi possível extrair um resumo para esta fonte."
+        }));
 
         if (sources && sources.length > 0) {
             setSearchResults(sources);
@@ -178,14 +203,16 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     }
   };
 
+
   const handleAddSource = (source: { uri: string; title: string }) => {
       if (addedWebSources.some(s => s.uri === source.uri)) {
-          return; // Silenciosamente ignora se já foi adicionado.
+          alert('Esta fonte já foi adicionada.');
+          return;
       }
       try {
           // Valida se o URI é uma URL bem formada. Lançará um erro para URLs inválidas.
           new URL(source.uri);
-          setAddedWebSources(prev => [...prev, source]);
+          setAddedWebSources(prev => [...prev, { uri: source.uri, title: source.title }]);
       } catch (e) {
           console.error("Tentativa de adicionar URL inválida:", source.uri);
           alert(`O link da fonte "${source.title}" é inválido e não pode ser adicionado.`);
@@ -475,7 +502,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                     {searchResults.length > 0 && (
                         <div className="mt-4 space-y-2">
                             <h4 className="font-medium text-sm text-gray-600">Resultados da Pesquisa:</h4>
-                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-48 overflow-y-auto">
+                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-60 overflow-y-auto">
                                 {searchResults.map((source) => {
                                     let hostname = source.uri;
                                     try {
@@ -483,6 +510,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                                     } catch (e) {
                                         console.warn(`URL inválida encontrada: ${source.uri}`);
                                     }
+                                    const isAdded = addedWebSources.some(s => s.uri === source.uri);
 
                                     return (
                                         <li key={source.uri} className="pl-3 pr-4 py-3 flex items-start justify-between text-sm hover:bg-gray-50">
@@ -491,10 +519,13 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                                                     {source.title}
                                                 </a>
                                                 <span className="text-gray-500 text-xs mt-1 truncate">{hostname}</span>
+                                                <p className="mt-2 text-sm text-gray-600 line-clamp-2" title={source.summary}>
+                                                    {source.summary}
+                                                </p>
                                             </div>
                                             <div className="ml-4 flex-shrink-0 self-center">
-                                                <button type="button" onClick={() => handleAddSource(source)} disabled={addedWebSources.some(s => s.uri === source.uri)} className="font-medium text-sm text-green-600 hover:text-green-800 disabled:text-gray-400 disabled:cursor-not-allowed">
-                                                    Adicionar
+                                                <button type="button" onClick={() => handleAddSource(source)} disabled={isAdded} className="font-medium text-sm text-green-600 hover:text-green-800 disabled:text-gray-400 disabled:cursor-not-allowed">
+                                                    {isAdded ? 'Adicionado' : 'Adicionar'}
                                                 </button>
                                             </div>
                                         </li>
