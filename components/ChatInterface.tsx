@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Tutor, ChatMessage, MessageAuthor, QuizQuestion, Flashcard } from '../types';
 import { ICONS } from '../constants';
-import { GoogleGenAI, Chat, Type } from '@google/genai';
+import { GoogleGenAI, Chat, Type, Content } from '@google/genai';
 import QuizView from './QuizView';
 import FlashcardView from './FlashcardView';
 
@@ -43,76 +43,104 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
     };
   }, []);
 
-  useEffect(() => {
-    setMessages([
-      {
-        author: MessageAuthor.MODEL,
-        text: `Olá! Eu sou ${tutor.name}, seu tutor de ${tutor.subject}. Como posso te ajudar hoje?`
-      }
-    ]);
-
-    try {
-      if (!GEMINI_API_KEY) {
-        throw new Error("Chave de API do Gemini não encontrada.");
-      }
-      const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-
-      let finalSystemInstruction = tutor.persona;
+  const getSystemInstruction = useCallback((currentTutor: Tutor): string => {
+    let finalSystemInstruction = currentTutor.persona;
     
-      // Adiciona a instrução de RAG condicionalmente à instrução do sistema
-      if (tutor.knowledge && tutor.knowledge.trim().length > 0) {
-        finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Sua principal fonte de conhecimento é um documento de contexto fornecido a seguir. Você DEVE basear suas respostas exclusivamente neste documento.\n- Se a pergunta do aluno não puder ser respondida usando o contexto, você deve dizer claramente: "Não encontrei a resposta para isso no material de apoio."\n- NÃO use conhecimento externo ou geral.\n\n--- INÍCIO DO CONTEXTO ---\n${tutor.knowledge}\n--- FIM DO CONTEXTO ---`;
-      } else {
-        finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Você NÃO recebeu um documento de contexto. Baseie suas respostas em seu conhecimento geral sobre o assunto. Se o aluno mencionar um documento ou material de apoio, informe-o de que nenhum foi fornecido a você.`;
-      }
-
-      if (tutor.webSources && tutor.webSources.length > 0) {
-        const sourcesList = tutor.webSources.map(s => `- ${s.title}: ${s.uri}`).join('\n');
-        finalSystemInstruction += `\n\n### FONTES DA WEB PARA CONSULTA ###\nAo usar a busca na web, dê prioridade para encontrar informações nas seguintes fontes, se relevantes para a pergunta do aluno:\n${sourcesList}`;
-      }
-
-      if (tutor.tools?.adaptiveLearning) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você é um tutor adaptativo. Sua principal diretriz é avaliar continuamente o nível de compreensão do aluno com base em suas respostas. - Se o aluno demonstrar dificuldade ou cometer erros, você deve simplificar o conteúdo, usar analogias mais simples e dividir os problemas em etapas menores. - Se o aluno mostrar domínio e responder corretamente, você deve gradualmente aumentar a complexidade, introduzir tópicos relacionados e fazer perguntas mais desafiadoras. O objetivo é personalizar a experiência de aprendizado em tempo real para se adequar ao ritmo do aluno, mantendo-o engajado e desafiado na medida certa. Faça essa adaptação de forma natural na conversa.";
-      }
-      if (tutor.tools?.quizGenerator) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você também é um Gerador de Quiz. Se o aluno pedir um quiz, um teste, ou para ser testado, crie perguntas (múltipla escolha ou dissertativas) com base no seu conhecimento. Sempre forneça as respostas corretas e explicações depois que o aluno tentar responder.";
-      }
-      if (tutor.tools?.conceptExplainer) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você também é um Explicador de Conceitos. Se o aluno pedir para explicar um tópico complexo, divida-o em partes simples, use analogias e explique como se estivesse falando com um iniciante.";
-      }
-      if (tutor.tools?.scenarioSimulator) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você também é um Simulador de Cenários. Se o aluno pedir para iniciar uma simulação ou um role-play, você deve assumir o papel de um personagem (como uma figura histórica, um personagem de livro, etc.) e interagir com o aluno para ajudá-lo a praticar ou entender uma situação.";
-      }
-       if (tutor.tools?.selfReflection) {
-        finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Você deve incentivar a autorreflexão. Após explicar um conceito ou depois que o aluno responder a uma pergunta, faça perguntas de acompanhamento como 'O que foi mais desafiador para você entender sobre isso?', 'Como você explicaria isso com suas próprias palavras?', ou 'Onde você acha que poderia aplicar este conceito?'.";
-      }
-      if (tutor.tools?.chainOfThought) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Ao resolver um problema ou responder a uma pergunta complexa, você DEVE usar um raciocínio de Cadeia de Pensamento (Chain-of-Thought). Explique seu processo passo a passo, mostrando como você chegou à solução. Isso ajuda o aluno a seguir sua lógica.";
-      }
-      if (tutor.tools?.treeOfThoughts) {
-          finalSystemInstruction += "\n\nCAPACIDADE ADICIONAL: Para problemas que podem ter múltiplas abordagens, você deve usar um método de Árvore de Pensamentos (Tree-of-Thoughts). Explore diferentes caminhos ou soluções em potencial, apresente-os ao aluno e discuta os prós e contras de cada um para guiar à melhor resposta.";
-      }
-      
-      const config: any = { systemInstruction: finalSystemInstruction };
-      if (tutor.tools?.webSearch) {
-        config.tools = [{ googleSearch: {} }];
-      }
-
-      const newChat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: config
-      });
-      setChat(newChat);
-
-    } catch (error) {
-      console.error("Falha ao inicializar o chat do Gemini:", error);
-      setMessages(prev => [...prev, {
-        author: MessageAuthor.MODEL,
-        text: "Desculpe, não consegui iniciar a sessão de chat. Verifique a configuração da API."
-      }]);
+    if (currentTutor.knowledge && currentTutor.knowledge.trim().length > 0) {
+      finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Sua principal fonte de conhecimento é um documento de contexto fornecido a seguir. Você DEVE basear suas respostas exclusivamente neste documento.\n- Se a pergunta do aluno não puder ser respondida usando o contexto, você deve dizer claramente: "Não encontrei a resposta para isso no material de apoio."\n- NÃO use conhecimento externo ou geral.\n\n--- INÍCIO DO CONTEXTO ---\n${currentTutor.knowledge}\n--- FIM DO CONTEXTO ---`;
+    } else {
+      finalSystemInstruction += `\n\n### REGRAS ADICIONAIS IMPORTANTES ###\n- Você NÃO recebeu um documento de contexto. Baseie suas respostas em seu conhecimento geral sobre o assunto. Se o aluno mencionar um documento ou material de apoio, informe-o de que nenhum foi fornecido a você.`;
     }
 
-  }, [tutor]);
+    if (currentTutor.webSources && currentTutor.webSources.length > 0) {
+      const sourcesList = currentTutor.webSources.map(s => `- ${s.title}: ${s.uri}`).join('\n');
+      finalSystemInstruction += `\n\n### FONTES DA WEB PARA CONSULTA ###\nAo usar a busca na web, dê prioridade para encontrar informações nas seguintes fontes, se relevantes para a pergunta do aluno:\n${sourcesList}`;
+    }
+    
+    const toolsInstructions = {
+        adaptiveLearning: "\n\nCAPACIDADE ADICIONAL: Você é um tutor adaptativo. Sua principal diretriz é avaliar continuamente o nível de compreensão do aluno com base em suas respostas. - Se o aluno demonstrar dificuldade ou cometer erros, você deve simplificar o conteúdo, usar analogias mais simples e dividir os problemas em etapas menores. - Se o aluno mostrar domínio e responder correctly, você deve gradualmente aumentar a complexidade, introduzir tópicos relacionados e fazer perguntas mais desafiadoras. O objetivo é personalizar a experiência de aprendizado em tempo real para se adequar ao ritmo do aluno, mantendo-o engajado e desafiado na medida certa. Faça essa adaptação de forma natural na conversa.",
+        quizGenerator: "\n\nCAPACIDADE ADICIONAL: Você também é um Gerador de Quiz. Se o aluno pedir um quiz, um teste, ou para ser testado, crie perguntas (múltipla escolha ou dissertativas) com base no seu conhecimento. Sempre forneça as respostas corretas e explicações depois que o aluno tentar responder.",
+        conceptExplainer: "\n\nCAPACIDADE ADICIONAL: Você também é um Explicador de Conceitos. Se o aluno pedir para explicar um tópico complexo, divida-o em partes simples, use analogias e explique como se estivesse falando com um iniciante.",
+        scenarioSimulator: "\n\nCAPACIDADE ADICIONAL: Você também é um Simulador de Cenários. Se o aluno pedir para iniciar uma simulação ou um role-play, você deve assumir o papel de um personagem (como uma figura histórica, um personagem de livro, etc.) e interagir com o aluno para ajudá-lo a praticar ou entender uma situação.",
+        selfReflection: "\n\nCAPACIDADE ADICIONAL: Você deve incentivar a autorreflexão. Após explicar um conceito ou depois que o aluno responder a uma pergunta, faça perguntas de acompanhamento como 'O que foi mais desafiador para você entender sobre isso?', 'Como você explicaria isso com suas próprias palavras?', ou 'Onde você acha que poderia aplicar este conceito?'.",
+        chainOfThought: "\n\nCAPACIDADE ADICIONAL: Ao resolver um problema ou responder a uma pergunta complexa, você DEVE usar um raciocínio de Cadeia de Pensamento (Chain-of-Thought). Explique seu processo passo a passo, mostrando como você chegou à solução. Isso ajuda o aluno a seguir sua lógica.",
+        treeOfThoughts: "\n\nCAPACIDADE ADICIONAL: Para problemas que podem ter múltiplas abordagens, você deve usar um método de Árvore de Pensamentos (Tree-of-Thoughts). Explore diferentes caminhos ou soluções em potencial, apresente-os ao aluno e discuta os prós e contras de cada um para guiar à melhor resposta."
+    };
+
+    for (const [key, value] of Object.entries(currentTutor.tools || {})) {
+        if (value && toolsInstructions[key as keyof typeof toolsInstructions]) {
+            finalSystemInstruction += toolsInstructions[key as keyof typeof toolsInstructions];
+        }
+    }
+
+    return finalSystemInstruction;
+}, []);
+
+  useEffect(() => {
+    let initialMessages: ChatMessage[] = [];
+    const storedHistory = localStorage.getItem(`chat_history_${tutor.id}`);
+
+    if (storedHistory) {
+        try {
+            const parsedHistory = JSON.parse(storedHistory);
+            if (Array.isArray(parsedHistory) && parsedHistory.length > 0) {
+                initialMessages = parsedHistory;
+            }
+        } catch (error) {
+            console.error("Falha ao analisar o histórico do chat, começando de novo.", error);
+        }
+    }
+
+    if (initialMessages.length === 0) {
+        initialMessages = [{
+            author: MessageAuthor.MODEL,
+            text: `Olá! Eu sou ${tutor.name}, seu tutor de ${tutor.subject}. Como posso te ajudar hoje?`
+        }];
+    }
+    setMessages(initialMessages);
+
+    try {
+        if (!GEMINI_API_KEY) throw new Error("Chave de API do Gemini não encontrada.");
+        
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const finalSystemInstruction = getSystemInstruction(tutor);
+        const config: any = { systemInstruction: finalSystemInstruction };
+        if (tutor.tools?.webSearch) {
+            config.tools = [{ googleSearch: {} }];
+        }
+
+        const historyForGemini: Content[] = initialMessages
+            .filter(msg => msg.text)
+            .map(msg => ({
+                role: msg.author === MessageAuthor.USER ? 'user' : 'model',
+                parts: [{ text: msg.text }]
+            }));
+
+        const newChat = ai.chats.create({
+            model: 'gemini-2.5-flash',
+            config: config,
+            history: historyForGemini,
+        });
+        setChat(newChat);
+
+    } catch (error) {
+        console.error("Falha ao inicializar o chat do Gemini:", error);
+        setMessages(prev => [...prev, {
+            author: MessageAuthor.MODEL,
+            text: "Desculpe, não consegui iniciar a sessão de chat. Verifique a configuração da API."
+        }]);
+    }
+  }, [tutor, getSystemInstruction]);
+
+  useEffect(() => {
+    if (messages.length > 1) {
+        try {
+            localStorage.setItem(`chat_history_${tutor.id}`, JSON.stringify(messages));
+        } catch (error) {
+            console.error("Falha ao salvar o histórico do chat:", error);
+        }
+    }
+  }, [messages, tutor.id]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -133,8 +161,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
     setIsLoading(true);
 
     try {
-      // A lógica de contexto foi movida para a instrução de sistema na inicialização.
-      // Agora, apenas enviamos a mensagem do usuário diretamente.
       const response = await chat.sendMessage({ message: messageToSend });
       const modelResponseText = response.text;
       
@@ -161,6 +187,37 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
       setIsLoading(false);
     }
   }, [input, isLoading, chat]);
+
+  const handleClearChat = useCallback(() => {
+    if (window.confirm('Tem certeza de que deseja apagar o histórico desta conversa? Esta ação não pode ser desfeita.')) {
+        try {
+            localStorage.removeItem(`chat_history_${tutor.id}`);
+            
+            const initialMessage = {
+                author: MessageAuthor.MODEL,
+                text: `Olá! Eu sou ${tutor.name}, seu tutor de ${tutor.subject}. Como posso te ajudar hoje?`
+            };
+            setMessages([initialMessage]);
+            
+            const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+            const finalSystemInstruction = getSystemInstruction(tutor);
+            const config: any = { systemInstruction: finalSystemInstruction };
+            if (tutor.tools?.webSearch) {
+                config.tools = [{ googleSearch: {} }];
+            }
+
+            const newChat = ai.chats.create({
+                model: 'gemini-2.5-flash',
+                config: config,
+            });
+            setChat(newChat);
+
+        } catch (error) {
+            console.error("Falha ao limpar o histórico do chat:", error);
+            alert("Ocorreu um erro ao limpar o histórico do chat.");
+        }
+    }
+  }, [tutor, getSystemInstruction]);
 
  const handleGenerateQuiz = useCallback(async () => {
     if (!chat || isLoading) return;
@@ -279,30 +336,39 @@ const handleGenerateFlashcards = useCallback(async () => {
                 <p className="text-sm text-gray-500">{tutor.subject}</p>
             </div>
         </div>
-        <div className="relative" ref={toolsMenuRef}>
-            {(tutor.tools?.quizGenerator || tutor.tools?.flashcardGenerator) && (
-                <button onClick={() => setIsToolsMenuOpen(prev => !prev)} className="p-2 text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-200/50">
-                    {ICONS.MORE_HORIZONTAL}
-                </button>
-            )}
-            {isToolsMenuOpen && (
-                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 origin-top-right z-20">
-                    <div className="py-1">
-                        {tutor.tools?.quizGenerator && (
-                            <button onClick={handleGenerateQuiz} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
-                                {ICONS.QUIZ}
-                                <span>Gerar Quiz</span>
-                            </button>
-                        )}
-                        {tutor.tools?.flashcardGenerator && (
-                            <button onClick={handleGenerateFlashcards} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
-                                {ICONS.FLASHCARD}
-                                <span>Gerar Flashcards</span>
-                            </button>
-                        )}
+        <div className="flex items-center gap-2">
+            <button 
+                onClick={handleClearChat}
+                className="p-2 text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-200/50"
+                title="Limpar histórico e iniciar nova conversa"
+            >
+                {ICONS.RESTART}
+            </button>
+            <div className="relative" ref={toolsMenuRef}>
+                {(tutor.tools?.quizGenerator || tutor.tools?.flashcardGenerator) && (
+                    <button onClick={() => setIsToolsMenuOpen(prev => !prev)} className="p-2 text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-200/50">
+                        {ICONS.MORE_HORIZONTAL}
+                    </button>
+                )}
+                {isToolsMenuOpen && (
+                     <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 origin-top-right z-20">
+                        <div className="py-1">
+                            {tutor.tools?.quizGenerator && (
+                                <button onClick={handleGenerateQuiz} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                                    {ICONS.QUIZ}
+                                    <span>Gerar Quiz</span>
+                                </button>
+                            )}
+                            {tutor.tools?.flashcardGenerator && (
+                                <button onClick={handleGenerateFlashcards} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                                    {ICONS.FLASHCARD}
+                                    <span>Gerar Flashcards</span>
+                                </button>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
       </header>
 
