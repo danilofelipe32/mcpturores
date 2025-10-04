@@ -1,0 +1,21 @@
+{
+  "name": "Construtor de Tutores de IA",
+  "short_name": "Tutores IA",
+  "description": "Uma plataforma SaaS para professores criarem agentes de tutoria de IA personalizados.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
