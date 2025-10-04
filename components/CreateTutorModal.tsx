@@ -32,7 +32,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
   const [persona, setPersona] = useState('');
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [tools, setTools] = useState({
-    webSearch: false,
+    // webSearch foi removido daqui e será controlado pela presença de webSources
     quizGenerator: false,
     conceptExplainer: false,
     scenarioSimulator: false,
@@ -68,7 +68,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
       }
       setAddedWebSources(existingTutor.webSources || []);
       setTools({
-          webSearch: existingTutor.tools?.webSearch || false,
+          // Não definimos webSearch aqui, pois é implícito
           quizGenerator: existingTutor.tools?.quizGenerator || false,
           conceptExplainer: existingTutor.tools?.conceptExplainer || false,
           scenarioSimulator: existingTutor.tools?.scenarioSimulator || false,
@@ -211,10 +211,11 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
       `Conteúdo do arquivo: ${file.name}\n\n${file.content}`
     ).join('\n\n---\n\n');
     
-    const finalTools = { ...tools };
-    if (addedWebSources.length > 0) {
-        finalTools.webSearch = true;
-    }
+    // Inicia com as ferramentas manuais e adiciona a busca na web condicionalmente
+    const finalTools = { 
+        ...tools,
+        webSearch: addedWebSources.length > 0
+    };
 
     onSave({ name, subject, persona, knowledge, tools: finalTools, webSources: addedWebSources });
   };
@@ -320,17 +321,8 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
             
             <div className="border-t border-gray-200 pt-6">
                 <h3 className="text-lg font-medium text-gray-900">Ferramentas e Capacidades</h3>
-                <p className="mt-1 text-sm text-gray-600">Melhore seu tutor com capacidades adicionais.</p>
+                <p className="mt-1 text-sm text-gray-600">Melhore seu tutor com capacidades adicionais. A busca na web será ativada automaticamente se você adicionar fontes da web abaixo.</p>
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                    <div className="relative flex items-start">
-                        <div className="flex items-center h-5">
-                            <input id="webSearch" name="webSearch" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.webSearch} onChange={handleToolChange} />
-                        </div>
-                        <div className="ml-3 text-sm">
-                            <label htmlFor="webSearch" className="font-medium text-gray-700">Busca na Web</label>
-                            <p className="text-gray-500">Permite que o tutor pesquise na internet para obter informações atualizadas.</p>
-                        </div>
-                    </div>
                     <div className="relative flex items-start">
                         <div className="flex items-center h-5">
                             <input id="quizGenerator" name="quizGenerator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.quizGenerator} onChange={handleToolChange} />
@@ -481,33 +473,45 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                     </div>
 
                     {searchResults.length > 0 && (
-                         <div className="mt-4 space-y-2">
-                             <h4 className="font-medium text-sm text-gray-600">Resultados da Pesquisa:</h4>
-                             <ul className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-40 overflow-y-auto">
-                                 {searchResults.map((source) => (
-                                     <li key={source.uri} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm hover:bg-gray-50">
-                                         <div className="w-0 flex-1 flex items-center">
-                                             <a href={source.uri} target="_blank" rel="noopener noreferrer" className="ml-2 flex-1 w-0 truncate text-indigo-600 hover:underline" title={source.title}>{source.title}</a>
-                                         </div>
-                                         <div className="ml-4 flex-shrink-0">
-                                             <button type="button" onClick={() => handleAddSource(source)} disabled={addedWebSources.some(s => s.uri === source.uri)} className="font-medium text-sm text-green-600 hover:text-green-800 disabled:text-gray-400 disabled:cursor-not-allowed">
-                                                Adicionar
-                                             </button>
-                                         </div>
-                                     </li>
-                                 ))}
-                             </ul>
-                         </div>
+                        <div className="mt-4 space-y-2">
+                            <h4 className="font-medium text-sm text-gray-600">Resultados da Pesquisa:</h4>
+                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200 max-h-48 overflow-y-auto">
+                                {searchResults.map((source) => {
+                                    let hostname = source.uri;
+                                    try {
+                                        hostname = new URL(source.uri).hostname;
+                                    } catch (e) {
+                                        console.warn(`URL inválida encontrada: ${source.uri}`);
+                                    }
+
+                                    return (
+                                        <li key={source.uri} className="pl-3 pr-4 py-3 flex items-start justify-between text-sm hover:bg-gray-50">
+                                            <div className="w-0 flex-1 flex flex-col min-w-0">
+                                                <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium truncate" title={source.title}>
+                                                    {source.title}
+                                                </a>
+                                                <span className="text-gray-500 text-xs mt-1 truncate">{hostname}</span>
+                                            </div>
+                                            <div className="ml-4 flex-shrink-0 self-center">
+                                                <button type="button" onClick={() => handleAddSource(source)} disabled={addedWebSources.some(s => s.uri === source.uri)} className="font-medium text-sm text-green-600 hover:text-green-800 disabled:text-gray-400 disabled:cursor-not-allowed">
+                                                    Adicionar
+                                                </button>
+                                            </div>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        </div>
                     )}
 
-                    {addedWebSources.length > 0 && (
-                        <div className="mt-4 space-y-2">
-                            <h4 className="font-medium text-sm text-gray-600">Fontes da Web Adicionadas:</h4>
-                            <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
+                    <div className="mt-6">
+                        <h4 className="font-medium text-gray-800">Fontes da Web Adicionadas</h4>
+                         {addedWebSources.length > 0 ? (
+                            <ul className="mt-2 border border-gray-200 rounded-md divide-y divide-gray-200">
                                 {addedWebSources.map((source) => (
-                                    <li key={source.uri} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
+                                    <li key={source.uri} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm bg-gray-50">
                                         <div className="w-0 flex-1 flex items-center">
-                                            <span className="ml-2 flex-1 w-0 truncate" title={source.title}>{source.title}</span>
+                                            <span className="ml-2 flex-1 w-0 truncate text-gray-700" title={source.title}>{source.title}</span>
                                         </div>
                                         <div className="ml-4 flex-shrink-0">
                                             <button type="button" onClick={() => handleRemoveSource(source.uri)} className="font-medium text-red-600 hover:text-red-500" aria-label={`Remover ${source.title}`}>
@@ -517,8 +521,10 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                                     </li>
                                 ))}
                             </ul>
-                        </div>
-                    )}
+                        ) : (
+                            <p className="mt-2 text-sm text-gray-500 bg-gray-50 p-4 rounded-md border">Nenhuma fonte da web adicionada. Use a busca acima para encontrar e adicionar fontes.</p>
+                        )}
+                    </div>
                 </div>
 
             </div>
