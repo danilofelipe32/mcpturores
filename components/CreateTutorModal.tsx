@@ -12,6 +12,12 @@ interface CreateTutorModalProps {
   existingTutor: Tutor | null;
 }
 
+interface UploadedFile {
+    id: string;
+    name: string;
+    content: string;
+}
+
 const MAX_FILE_SIZE_MB = 10;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
@@ -19,7 +25,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [persona, setPersona] = useState('');
-  const [knowledge, setKnowledge] = useState('');
+  const [files, setFiles] = useState<UploadedFile[]>([]);
   const [tools, setTools] = useState({
     webSearch: false,
     quizGenerator: false,
@@ -27,8 +33,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     scenarioSimulator: false,
     adaptiveLearning: false,
   });
-  const [fileName, setFileName] = useState('');
-  const [isProcessingFile, setIsProcessingFile] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -39,7 +44,13 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
       setName(existingTutor.name);
       setSubject(existingTutor.subject);
       setPersona(existingTutor.persona);
-      setKnowledge(existingTutor.knowledge || '');
+      if (existingTutor.knowledge) {
+          setFiles([{ 
+              id: 'existing_knowledge', 
+              name: 'Base de conhecimento existente', 
+              content: existingTutor.knowledge 
+          }]);
+      }
       setTools({
           webSearch: existingTutor.tools?.webSearch || false,
           quizGenerator: existingTutor.tools?.quizGenerator || false,
@@ -47,68 +58,69 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
           scenarioSimulator: existingTutor.tools?.scenarioSimulator || false,
           adaptiveLearning: existingTutor.tools?.adaptiveLearning || false,
       })
-      if (existingTutor.knowledge) {
-        setFileName('Base de conhecimento existente.');
-      }
     }
   }, [existingTutor]);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
+  
+  const processFile = async (file: File): Promise<UploadedFile | null> => {
     if (file.size > MAX_FILE_SIZE_BYTES) {
-        alert(`O arquivo é muito grande (${(file.size / 1024 / 1024).toFixed(2)} MB). O tamanho máximo permitido é de ${MAX_FILE_SIZE_MB} MB.`);
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-        return;
+        alert(`O arquivo "${file.name}" é muito grande (${(file.size / 1024 / 1024).toFixed(2)} MB). O tamanho máximo permitido é de ${MAX_FILE_SIZE_MB} MB.`);
+        return null;
     }
-
-    setFileName(`Processando ${file.name}...`);
-    setKnowledge('');
-    setIsProcessingFile(true);
 
     try {
-      let text = '';
-      const extension = file.name.split('.').pop()?.toLowerCase();
+        let text = '';
+        const extension = file.name.split('.').pop()?.toLowerCase();
 
-      if (extension === 'txt' || extension === 'md') {
-        text = await file.text();
-      } else if (extension === 'pdf') {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        const numPages = pdf.numPages;
-        const pageTexts = [];
-        for (let i = 1; i <= numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map((item: any) => item.str).join(' ');
-          pageTexts.push(pageText);
+        if (extension === 'txt' || extension === 'md') {
+            text = await file.text();
+        } else if (extension === 'pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            const pageTexts = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map((item: any) => item.str).join(' ');
+                pageTexts.push(pageText);
+            }
+            text = pageTexts.join('\n\n');
+        } else if (extension === 'docx') {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            text = result.value;
+        } else {
+            alert(`Tipo de arquivo não suportado: "${file.name}". Por favor, carregue .txt, .md, .pdf, ou .docx`);
+            return null;
         }
-        text = pageTexts.join('\n\n');
-      } else if (extension === 'docx') {
-        const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
-        text = result.value;
-      } else {
-        alert('Tipo de arquivo não suportado. Por favor, carregue .txt, .md, .pdf, ou .docx');
-        setFileName('');
-        return;
-      }
-
-      setKnowledge(text);
-      setFileName(file.name);
+        
+        return { id: `file_${Date.now()}_${Math.random()}`, name: file.name, content: text };
     } catch (error) {
-      console.error("Erro ao processar o arquivo:", error);
-      alert("Ocorreu um erro ao processar o arquivo. Ele pode estar corrompido ou em um formato inválido.");
-      setFileName('');
-    } finally {
-      setIsProcessingFile(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+        console.error(`Erro ao processar o arquivo "${file.name}":`, error);
+        alert(`Ocorreu um erro ao processar o arquivo "${file.name}". Ele pode estar corrompido ou em um formato inválido.`);
+        return null;
     }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = e.target.files;
+    if (!selectedFiles || selectedFiles.length === 0) return;
+
+    setIsProcessing(true);
+    
+    const processingPromises = Array.from(selectedFiles).map(processFile);
+    const newFiles = await Promise.all(processingPromises);
+    const validFiles = newFiles.filter((file): file is UploadedFile => file !== null);
+
+    setFiles(prev => [...prev, ...validFiles]);
+
+    setIsProcessing(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+  
+  const handleRemoveFile = (idToRemove: string) => {
+    setFiles(prev => prev.filter(file => file.id !== idToRemove));
   };
 
 
@@ -118,10 +130,14 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
       alert('Por favor, preencha todos os campos obrigatórios.');
       return;
     }
-     if (isProcessingFile) {
-        alert('Por favor, aguarde o processamento do arquivo terminar.');
+     if (isProcessing) {
+        alert('Por favor, aguarde o processamento dos arquivos terminar.');
         return;
     }
+    const knowledge = files.map(file => 
+      `Conteúdo do arquivo: ${file.name}\n\n${file.content}`
+    ).join('\n\n---\n\n');
+    
     onSave({ name, subject, persona, knowledge, tools });
   };
   
@@ -130,15 +146,6 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     setTools(prev => ({ ...prev, [name]: checked }));
   };
 
-  const fileStatusMessage = () => {
-      if (isProcessingFile) {
-          return <p className="text-sm font-semibold text-blue-600 mt-2">{fileName}</p>;
-      }
-      if (fileName) {
-          return <p className="text-sm font-semibold text-green-600 mt-2">{fileName}</p>;
-      }
-      return null;
-  }
 
   return (
     <div
@@ -297,15 +304,38 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                                 htmlFor="file-upload"
                                 className="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500"
                             >
-                                <span>Carregar um arquivo</span>
-                                <input ref={fileInputRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".txt,.md,.pdf,.docx" />
+                                <span>Carregar arquivos</span>
+                                <input ref={fileInputRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept=".txt,.md,.pdf,.docx" multiple />
                             </label>
                             <p className="pl-1">ou arraste e solte</p>
                         </div>
                         <p className="text-xs text-gray-500">Arquivos .txt, .md, .pdf, .docx (Máx {MAX_FILE_SIZE_MB}MB)</p>
-                        {fileStatusMessage()}
                     </div>
                 </div>
+                {isProcessing && (
+                    <div className="mt-4 text-center">
+                        <p className="text-sm font-semibold text-blue-600">Processando arquivos...</p>
+                    </div>
+                )}
+                {files.length > 0 && (
+                    <div className="mt-4 space-y-2">
+                        <h4 className="font-medium text-sm text-gray-600">Arquivos Carregados:</h4>
+                        <ul className="border border-gray-200 rounded-md divide-y divide-gray-200">
+                            {files.map((file) => (
+                                <li key={file.id} className="pl-3 pr-4 py-3 flex items-center justify-between text-sm">
+                                    <div className="w-0 flex-1 flex items-center">
+                                        <span className="ml-2 flex-1 w-0 truncate">{file.name}</span>
+                                    </div>
+                                    <div className="ml-4 flex-shrink-0">
+                                        <button type="button" onClick={() => handleRemoveFile(file.id)} className="font-medium text-red-600 hover:text-red-500" aria-label={`Remover ${file.name}`}>
+                                            {ICONS.TRASH}
+                                        </button>
+                                    </div>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
             </div>
           </div>
           <div className="mt-8 flex justify-end gap-4">
@@ -318,10 +348,11 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
             </button>
             <button
               type="submit"
-              disabled={isProcessingFile}
-              className="py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed"
+              disabled={isProcessing}
+              className="py-2 px-4 bg-indigo-600 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-700 transition-colors disabled:bg-indigo-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
-              {isProcessingFile ? 'Processando...' : (isEditing ? 'Salvar Alterações' : 'Criar Tutor')}
+              {isProcessing && ICONS.SPINNER}
+              {isProcessing ? 'Processando...' : (isEditing ? 'Salvar Alterações' : 'Criar Tutor')}
             </button>
           </div>
         </form>
