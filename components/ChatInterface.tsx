@@ -26,6 +26,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
   const [currentView, setCurrentView] = useState<View>('chat');
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
+  const [isToolsMenuOpen, setIsToolsMenuOpen] = useState(false);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
+
+
+  // Efeito para fechar o menu de ferramentas ao clicar fora dele
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (toolsMenuRef.current && !toolsMenuRef.current.contains(event.target as Node)) {
+        setIsToolsMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     setMessages([
@@ -148,6 +164,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
 
  const handleGenerateQuiz = useCallback(async () => {
     if (!chat || isLoading) return;
+    setIsToolsMenuOpen(false);
     setIsLoading(true);
     setMessages(prev => [...prev, { author: MessageAuthor.MODEL, text: "Ok, estou preparando um quiz para você..."}]);
 
@@ -201,6 +218,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
 
 const handleGenerateFlashcards = useCallback(async () => {
     if (!chat || isLoading) return;
+    setIsToolsMenuOpen(false);
     setIsLoading(true);
     setMessages(prev => [...prev, { author: MessageAuthor.MODEL, text: "Certo! Gerando flashcards para revisão..."}]);
 
@@ -250,82 +268,93 @@ const handleGenerateFlashcards = useCallback(async () => {
 
 
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      <header className="bg-white shadow-md p-4 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-4">
-            <button onClick={onClose} className="text-gray-600 hover:text-gray-900">
-            {ICONS.ARROW_LEFT}
+    <div className="flex flex-col h-screen bg-gradient-to-br from-gray-50 to-slate-200">
+      <header className="bg-white/80 backdrop-blur-sm border-b border-slate-200/50 p-4 flex items-center justify-between fixed top-0 left-0 right-0 z-10">
+        <div className="flex items-center gap-3">
+            <button onClick={onClose} className="text-gray-600 hover:text-gray-900 p-1 rounded-full hover:bg-gray-200/50">
+                {ICONS.ARROW_LEFT}
             </button>
             <div>
-            <h1 className="text-xl font-bold text-gray-800">{tutor.name}</h1>
-            <p className="text-sm text-gray-500">{tutor.subject}</p>
+                <h1 className="text-lg font-bold text-gray-800">{tutor.name}</h1>
+                <p className="text-sm text-gray-500">{tutor.subject}</p>
             </div>
         </div>
-        <div className="flex items-center gap-2">
-            {tutor.tools?.quizGenerator && (
-                <button onClick={handleGenerateQuiz} disabled={isLoading} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 font-semibold py-2 px-3 rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-50 transition-colors text-sm">
-                    {ICONS.QUIZ}
-                    <span>Gerar Quiz</span>
+        <div className="relative" ref={toolsMenuRef}>
+            {(tutor.tools?.quizGenerator || tutor.tools?.flashcardGenerator) && (
+                <button onClick={() => setIsToolsMenuOpen(prev => !prev)} className="p-2 text-gray-600 hover:text-gray-900 rounded-full hover:bg-gray-200/50">
+                    {ICONS.MORE_HORIZONTAL}
                 </button>
             )}
-            {tutor.tools?.flashcardGenerator && (
-                <button onClick={handleGenerateFlashcards} disabled={isLoading} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 font-semibold py-2 px-3 rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-50 transition-colors text-sm">
-                    {ICONS.FLASHCARD}
-                    <span>Flashcards</span>
-                </button>
+            {isToolsMenuOpen && (
+                 <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-100 origin-top-right z-20">
+                    <div className="py-1">
+                        {tutor.tools?.quizGenerator && (
+                            <button onClick={handleGenerateQuiz} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                                {ICONS.QUIZ}
+                                <span>Gerar Quiz</span>
+                            </button>
+                        )}
+                        {tutor.tools?.flashcardGenerator && (
+                            <button onClick={handleGenerateFlashcards} disabled={isLoading} className="w-full text-left flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50">
+                                {ICONS.FLASHCARD}
+                                <span>Gerar Flashcards</span>
+                            </button>
+                        )}
+                    </div>
+                </div>
             )}
         </div>
       </header>
 
       <div className="flex-1 relative">
-        <main className="absolute inset-0 overflow-y-auto p-4 space-y-4">
+        <main className="absolute inset-0 overflow-y-auto p-4 pt-24 pb-28 space-y-4">
             {messages.map((msg, index) => (
-            <div key={index} className={`flex items-start gap-3 ${msg.author === MessageAuthor.USER ? 'justify-end' : 'justify-start'}`}>
+            <div key={index} className={`flex items-end gap-2.5 ${msg.author === MessageAuthor.USER ? 'justify-end' : 'justify-start'}`}>
                 {msg.author === MessageAuthor.MODEL && (
-                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                    {ICONS.ROBOT}
-                </div>
-                )}
-                <div className={`max-w-md lg:max-w-2xl p-3 rounded-lg ${msg.author === MessageAuthor.USER ? 'bg-indigo-500 text-white' : 'bg-white text-gray-800 shadow-sm'}`}>
-                {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-                {msg.sources && msg.sources.length > 0 && (
-                    <div className="mt-3 border-t border-gray-200/70 pt-3">
-                    <h4 className="text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Fontes</h4>
-                    <div className="flex flex-col gap-2">
-                        {msg.sources.map((source, i) => (
-                        <a 
-                            key={i} 
-                            href={source.uri} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="text-sm text-indigo-600 hover:underline flex items-center gap-2 p-1 rounded-md hover:bg-indigo-50"
-                        >
-                            <span className="flex-shrink-0 w-5 h-5 bg-gray-200 text-gray-600 text-xs flex items-center justify-center rounded-full font-semibold">{i + 1}</span>
-                            <span className="truncate" title={source.title}>{source.title || source.uri}</span>
-                        </a>
-                        ))}
-                    </div>
+                    <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
+                        {ICONS.ROBOT}
                     </div>
                 )}
+                <div className={`max-w-md lg:max-w-2xl p-3 px-4 ${msg.author === MessageAuthor.USER ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-3xl rounded-br-lg shadow-md' : 'bg-white/90 backdrop-blur-sm border border-slate-200/50 text-gray-800 rounded-3xl rounded-bl-lg shadow-sm'}`}>
+                    {msg.text && <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>}
+                    {msg.sources && msg.sources.length > 0 && (
+                        <div className="mt-3 border-t border-slate-200/70 pt-3">
+                            <h4 className="text-xs font-bold text-slate-500 mb-1.5 uppercase tracking-wider">Fontes</h4>
+                            <div className="flex flex-col gap-2">
+                                {msg.sources.map((source, i) => (
+                                <a 
+                                    key={i} 
+                                    href={source.uri} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer" 
+                                    className="text-sm text-indigo-700 hover:underline flex items-center gap-2 p-1 rounded-md hover:bg-indigo-50"
+                                >
+                                    <span className="flex-shrink-0 w-5 h-5 bg-slate-200 text-slate-600 text-xs flex items-center justify-center rounded-full font-semibold">{i + 1}</span>
+                                    <span className="truncate" title={source.title}>{source.title || source.uri}</span>
+                                </a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
                 {msg.author === MessageAuthor.USER && (
-                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
-                    {ICONS.USER}
-                </div>
+                    <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0 shadow-md">
+                        {ICONS.USER}
+                    </div>
                 )}
             </div>
             ))}
             {isLoading && (
-            <div className="flex items-start gap-3 justify-start">
-                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
+            <div className="flex items-end gap-2.5 justify-start">
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0 shadow-md">
                     {ICONS.ROBOT}
                 </div>
-                <div className="max-w-md lg:max-w-2xl p-3 rounded-lg bg-white text-gray-800 shadow-sm">
-                <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '75ms'}}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-                </div>
+                <div className="max-w-md lg:max-w-2xl p-3 px-4 rounded-3xl rounded-bl-lg bg-white/90 backdrop-blur-sm border border-slate-200/50 shadow-sm">
+                    <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '75ms'}}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                    </div>
                 </div>
             </div>
             )}
@@ -347,26 +376,28 @@ const handleGenerateFlashcards = useCallback(async () => {
             />
         )}
       </div>
-
-      <footer className={`bg-white border-t border-gray-200 p-4 sticky bottom-0 ${currentView !== 'chat' ? 'hidden' : ''}`}>
-        <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="Digite sua mensagem..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-            disabled={isLoading}
-          />
-          <button
-            type="submit"
-            disabled={isLoading || !input.trim()}
-            className="bg-indigo-600 text-white p-3 rounded-full hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? ICONS.SPINNER : ICONS.SEND}
-          </button>
-        </form>
-      </footer>
+      
+      {currentView === 'chat' && (
+          <footer className="fixed bottom-0 left-0 right-0 p-4 bg-transparent">
+            <form onSubmit={handleSubmit} className="flex items-center gap-3 max-w-4xl mx-auto">
+              <input
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                placeholder="Digite sua mensagem..."
+                className="flex-1 px-6 py-3 border border-gray-300/50 rounded-full focus:ring-2 focus:ring-indigo-500 focus:outline-none shadow-lg bg-white/80 backdrop-blur-sm transition-all"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !input.trim()}
+                className="bg-indigo-600 text-white p-3.5 rounded-full hover:bg-indigo-700 disabled:bg-indigo-300 disabled:cursor-not-allowed transition-all duration-300 shadow-lg hover:scale-110 active:scale-100"
+              >
+                {isLoading ? ICONS.SPINNER : ICONS.SEND}
+              </button>
+            </form>
+          </footer>
+      )}
     </div>
   );
 };
