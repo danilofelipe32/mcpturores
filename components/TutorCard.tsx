@@ -95,6 +95,11 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor, onSelect, onDelete, onEdit
                 Conversar com o Tutor →
              </span>
              <div className="flex items-center gap-3 text-gray-400">
+                {tutor.tools?.adaptiveLearning && (
+                  <div title="Aprendizagem Adaptativa Habilitada">
+                    {ICONS.ADAPTIVE}
+                  </div>
+                )}
                 {tutor.tools?.webSearch && (
                   <div title="Busca na Web Habilitada">
                     {ICONS.WEB}
@@ -113,11 +118,6 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor, onSelect, onDelete, onEdit
                 {tutor.tools?.scenarioSimulator && (
                   <div title="Simulador de Cenários Habilitado">
                     {ICONS.SIMULATE}
-                  </div>
-                )}
-                {tutor.tools?.adaptiveLearning && (
-                  <div title="Aprendizagem Adaptativa Habilitada">
-                    {ICONS.ADAPTIVE}
                   </div>
                 )}
              </div>
