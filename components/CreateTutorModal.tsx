@@ -32,6 +32,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
     conceptExplainer: false,
     scenarioSimulator: false,
     adaptiveLearning: false,
+    flashcardGenerator: false,
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
@@ -57,6 +58,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
           conceptExplainer: existingTutor.tools?.conceptExplainer || false,
           scenarioSimulator: existingTutor.tools?.scenarioSimulator || false,
           adaptiveLearning: existingTutor.tools?.adaptiveLearning || false,
+          flashcardGenerator: existingTutor.tools?.flashcardGenerator || false,
       })
     }
   }, [existingTutor]);
@@ -251,6 +253,15 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
                         <div className="ml-3 text-sm">
                             <label htmlFor="adaptiveLearning" className="font-medium text-gray-700">Habilitar Aprendizagem Adaptativa</label>
                             <p className="text-gray-500">Permite que o tutor avalie continuamente o progresso do aluno e ajuste a dificuldade do conteúdo para se adequar ao seu nível de conhecimento.</p>
+                        </div>
+                    </div>
+                     <div className="relative flex items-start">
+                        <div className="flex items-center h-5">
+                            <input id="flashcardGenerator" name="flashcardGenerator" type="checkbox" className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded" checked={tools.flashcardGenerator} onChange={handleToolChange} />
+                        </div>
+                        <div className="ml-3 text-sm">
+                            <label htmlFor="flashcardGenerator" className="font-medium text-gray-700">Habilitar Gerador de Flashcards</label>
+                            <p className="text-gray-500">Permite que o tutor crie flashcards de pergunta e resposta com base no conteúdo para ajudar na revisão do aluno.</p>
                         </div>
                     </div>
                     <div className="relative flex items-start">

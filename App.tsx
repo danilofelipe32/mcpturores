@@ -95,7 +95,7 @@ const App: React.FC = () => {
         ...tutorData,
         id: `tutor_${Date.now()}`,
         createdAt: new Date().toISOString(),
-        tools: tutorData.tools || { webSearch: false, quizGenerator: false, conceptExplainer: false, scenarioSimulator: false, adaptiveLearning: false },
+        tools: tutorData.tools || { webSearch: false, quizGenerator: false, conceptExplainer: false, scenarioSimulator: false, adaptiveLearning: false, flashcardGenerator: false },
       };
       setTutors(prev => [newTutor, ...prev]);
     }

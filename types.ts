@@ -11,6 +11,7 @@ export interface Tutor {
     conceptExplainer?: boolean;
     scenarioSimulator?: boolean;
     adaptiveLearning?: boolean;
+    flashcardGenerator?: boolean;
   }
 }
 
@@ -23,4 +24,16 @@ export interface ChatMessage {
   author: MessageAuthor;
   text: string;
   sources?: { uri: string; title: string }[];
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctAnswer: string;
+  explanation: string;
+}
+
+export interface Flashcard {
+  question: string;
+  answer: string;
 }

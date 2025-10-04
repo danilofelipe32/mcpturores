@@ -95,6 +95,11 @@ const TutorCard: React.FC<TutorCardProps> = ({ tutor, onSelect, onDelete, onEdit
                 Conversar com o Tutor →
              </span>
              <div className="flex items-center gap-3 text-gray-400">
+                {tutor.tools?.flashcardGenerator && (
+                  <div title="Gerador de Flashcards Habilitado">
+                    {ICONS.FLASHCARD}
+                  </div>
+                )}
                 {tutor.tools?.adaptiveLearning && (
                   <div title="Aprendizagem Adaptativa Habilitada">
                     {ICONS.ADAPTIVE}

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Tutor, ChatMessage, MessageAuthor } from '../types';
+import { Tutor, ChatMessage, MessageAuthor, QuizQuestion, Flashcard } from '../types';
 import { ICONS } from '../constants';
-import { GoogleGenAI, Chat } from '@google/genai';
+import { GoogleGenAI, Chat, Type } from '@google/genai';
+import QuizView from './QuizView';
+import FlashcardView from './FlashcardView';
 
 interface ChatInterfaceProps {
   tutor: Tutor;
@@ -12,12 +14,18 @@ interface ChatInterfaceProps {
 // Use variáveis de ambiente e um backend para proteger sua chave.
 const GEMINI_API_KEY = "AIzaSyB_FQvyfvHCpzyr8rJWUZxPvwKN5BQnQa8";
 
+type View = 'chat' | 'quiz' | 'flashcards';
+
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ tutor, onClose }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [chat, setChat] = useState<Chat | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const [currentView, setCurrentView] = useState<View>('chat');
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
 
   useEffect(() => {
     setMessages([
@@ -137,73 +145,209 @@ Sua Resposta:
     }
   }, [input, isLoading, tutor, chat]);
 
+ const handleGenerateQuiz = useCallback(async () => {
+    if (!chat || isLoading) return;
+    setIsLoading(true);
+    setMessages(prev => [...prev, { author: MessageAuthor.MODEL, text: "Ok, estou preparando um quiz para você..."}]);
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const topic = messages.filter(m => m.author === MessageAuthor.USER).slice(-3).map(m => m.text).join('\n') || 'o tópico geral da matéria';
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Com base no conhecimento do tutor de ${tutor.subject} e no tópico recente de "${topic}", crie um quiz com 5 perguntas de múltipla escolha. Para cada pergunta, forneça o texto da pergunta, uma lista de 4 opções, a resposta correta e uma breve explicação do porquê a resposta está correta.`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        quiz: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    question: { type: Type.STRING },
+                                    options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                    correctAnswer: { type: Type.STRING },
+                                    explanation: { type: Type.STRING }
+                                },
+                                required: ["question", "options", "correctAnswer", "explanation"]
+                            }
+                        }
+                    },
+                    required: ["quiz"]
+                }
+            }
+        });
+
+        const quizData = JSON.parse(response.text);
+        if (quizData.quiz && quizData.quiz.length > 0) {
+            setQuizQuestions(quizData.quiz);
+            setCurrentView('quiz');
+        } else {
+            throw new Error("A resposta da IA não continha um quiz válido.");
+        }
+
+    } catch (error) {
+        console.error("Erro ao gerar quiz:", error);
+        setMessages(prev => [...prev.slice(0, -1), { author: MessageAuthor.MODEL, text: "Desculpe, não consegui gerar o quiz. Tente novamente."}]);
+    } finally {
+        setIsLoading(false);
+    }
+}, [chat, isLoading, tutor.subject, messages]);
+
+
+const handleGenerateFlashcards = useCallback(async () => {
+    if (!chat || isLoading) return;
+    setIsLoading(true);
+    setMessages(prev => [...prev, { author: MessageAuthor.MODEL, text: "Certo! Gerando flashcards para revisão..."}]);
+
+    try {
+        const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+        const topic = messages.filter(m => m.author === MessageAuthor.USER).slice(-3).map(m => m.text).join('\n') || 'os conceitos chave da matéria';
+
+        const response = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `Com base no conhecimento do tutor de ${tutor.subject} e no tópico recente de "${topic}", crie um conjunto de 10 flashcards. Cada flashcard deve ter uma pergunta (um conceito, termo ou problema) e uma resposta curta e direta.`,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: {
+                    type: Type.OBJECT,
+                    properties: {
+                        flashcards: {
+                            type: Type.ARRAY,
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    question: { type: Type.STRING },
+                                    answer: { type: Type.STRING },
+                                },
+                                required: ["question", "answer"]
+                            }
+                        }
+                    },
+                    required: ["flashcards"]
+                }
+            }
+        });
+
+        const flashcardData = JSON.parse(response.text);
+        if (flashcardData.flashcards && flashcardData.flashcards.length > 0) {
+            setFlashcards(flashcardData.flashcards);
+            setCurrentView('flashcards');
+        } else {
+            throw new Error("A resposta da IA não continha flashcards válidos.");
+        }
+    } catch (error) {
+        console.error("Erro ao gerar flashcards:", error);
+         setMessages(prev => [...prev.slice(0, -1), { author: MessageAuthor.MODEL, text: "Desculpe, não consegui gerar os flashcards. Tente novamente."}]);
+    } finally {
+        setIsLoading(false);
+    }
+}, [chat, isLoading, tutor.subject, messages]);
+
+
   return (
     <div className="flex flex-col h-screen bg-gray-100">
-      <header className="bg-white shadow-md p-4 flex items-center gap-4 sticky top-0 z-10">
-        <button onClick={onClose} className="text-gray-600 hover:text-gray-900">
-          {ICONS.ARROW_LEFT}
-        </button>
-        <div>
-          <h1 className="text-xl font-bold text-gray-800">{tutor.name}</h1>
-          <p className="text-sm text-gray-500">{tutor.subject}</p>
+      <header className="bg-white shadow-md p-4 flex items-center justify-between sticky top-0 z-10">
+        <div className="flex items-center gap-4">
+            <button onClick={onClose} className="text-gray-600 hover:text-gray-900">
+            {ICONS.ARROW_LEFT}
+            </button>
+            <div>
+            <h1 className="text-xl font-bold text-gray-800">{tutor.name}</h1>
+            <p className="text-sm text-gray-500">{tutor.subject}</p>
+            </div>
+        </div>
+        <div className="flex items-center gap-2">
+            {tutor.tools?.quizGenerator && (
+                <button onClick={handleGenerateQuiz} disabled={isLoading} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 font-semibold py-2 px-3 rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-50 transition-colors text-sm">
+                    {ICONS.QUIZ}
+                    <span>Gerar Quiz</span>
+                </button>
+            )}
+            {tutor.tools?.flashcardGenerator && (
+                <button onClick={handleGenerateFlashcards} disabled={isLoading} className="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 font-semibold py-2 px-3 rounded-lg shadow-sm hover:bg-gray-50 disabled:opacity-50 transition-colors text-sm">
+                    {ICONS.FLASHCARD}
+                    <span>Flashcards</span>
+                </button>
+            )}
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg, index) => (
-          <div key={index} className={`flex items-start gap-3 ${msg.author === MessageAuthor.USER ? 'justify-end' : 'justify-start'}`}>
-            {msg.author === MessageAuthor.MODEL && (
-              <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                {ICONS.ROBOT}
-              </div>
-            )}
-            <div className={`max-w-md lg:max-w-2xl p-3 rounded-lg ${msg.author === MessageAuthor.USER ? 'bg-indigo-500 text-white' : 'bg-white text-gray-800 shadow-sm'}`}>
-              {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
-               {msg.sources && msg.sources.length > 0 && (
-                <div className="mt-3 border-t border-gray-200/70 pt-3">
-                  <h4 className="text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Fontes</h4>
-                  <div className="flex flex-col gap-2">
-                    {msg.sources.map((source, i) => (
-                      <a 
-                        key={i} 
-                        href={source.uri} 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="text-sm text-indigo-600 hover:underline flex items-center gap-2 p-1 rounded-md hover:bg-indigo-50"
-                      >
-                        <span className="flex-shrink-0 w-5 h-5 bg-gray-200 text-gray-600 text-xs flex items-center justify-center rounded-full font-semibold">{i + 1}</span>
-                        <span className="truncate" title={source.title}>{source.title || source.uri}</span>
-                      </a>
-                    ))}
-                  </div>
+      <div className="flex-1 relative">
+        <main className="absolute inset-0 overflow-y-auto p-4 space-y-4">
+            {messages.map((msg, index) => (
+            <div key={index} className={`flex items-start gap-3 ${msg.author === MessageAuthor.USER ? 'justify-end' : 'justify-start'}`}>
+                {msg.author === MessageAuthor.MODEL && (
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                    {ICONS.ROBOT}
                 </div>
-              )}
+                )}
+                <div className={`max-w-md lg:max-w-2xl p-3 rounded-lg ${msg.author === MessageAuthor.USER ? 'bg-indigo-500 text-white' : 'bg-white text-gray-800 shadow-sm'}`}>
+                {msg.text && <p className="whitespace-pre-wrap">{msg.text}</p>}
+                {msg.sources && msg.sources.length > 0 && (
+                    <div className="mt-3 border-t border-gray-200/70 pt-3">
+                    <h4 className="text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Fontes</h4>
+                    <div className="flex flex-col gap-2">
+                        {msg.sources.map((source, i) => (
+                        <a 
+                            key={i} 
+                            href={source.uri} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-sm text-indigo-600 hover:underline flex items-center gap-2 p-1 rounded-md hover:bg-indigo-50"
+                        >
+                            <span className="flex-shrink-0 w-5 h-5 bg-gray-200 text-gray-600 text-xs flex items-center justify-center rounded-full font-semibold">{i + 1}</span>
+                            <span className="truncate" title={source.title}>{source.title || source.uri}</span>
+                        </a>
+                        ))}
+                    </div>
+                    </div>
+                )}
+                </div>
+                {msg.author === MessageAuthor.USER && (
+                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
+                    {ICONS.USER}
+                </div>
+                )}
             </div>
-             {msg.author === MessageAuthor.USER && (
-              <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
-                {ICONS.USER}
-              </div>
+            ))}
+            {isLoading && (
+            <div className="flex items-start gap-3 justify-start">
+                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                    {ICONS.ROBOT}
+                </div>
+                <div className="max-w-md lg:max-w-2xl p-3 rounded-lg bg-white text-gray-800 shadow-sm">
+                <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '75ms'}}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
+                </div>
+                </div>
+            </div>
             )}
-          </div>
-        ))}
-        {isLoading && (
-           <div className="flex items-start gap-3 justify-start">
-             <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
-                {ICONS.ROBOT}
-              </div>
-            <div className="max-w-md lg:max-w-2xl p-3 rounded-lg bg-white text-gray-800 shadow-sm">
-              <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '75ms'}}></div>
-                 <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-              </div>
-            </div>
-           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </main>
+            <div ref={messagesEndRef} />
+        </main>
 
-      <footer className="bg-white border-t border-gray-200 p-4 sticky bottom-0">
+        {currentView === 'quiz' && (
+            <QuizView 
+                questions={quizQuestions} 
+                tutor={tutor} 
+                onClose={() => setCurrentView('chat')} 
+            />
+        )}
+        {currentView === 'flashcards' && (
+            <FlashcardView 
+                flashcards={flashcards} 
+                tutorName={tutor.name}
+                onClose={() => setCurrentView('chat')} 
+            />
+        )}
+      </div>
+
+      <footer className={`bg-white border-t border-gray-200 p-4 sticky bottom-0 ${currentView !== 'chat' ? 'hidden' : ''}`}>
         <form onSubmit={handleSubmit} className="flex items-center gap-2 max-w-4xl mx-auto">
           <input
             type="text"
