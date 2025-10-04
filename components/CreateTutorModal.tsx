@@ -179,8 +179,16 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
   };
 
   const handleAddSource = (source: { uri: string; title: string }) => {
-      if (!addedWebSources.some(s => s.uri === source.uri)) {
+      if (addedWebSources.some(s => s.uri === source.uri)) {
+          return; // Silenciosamente ignora se já foi adicionado.
+      }
+      try {
+          // Valida se o URI é uma URL bem formada. Lançará um erro para URLs inválidas.
+          new URL(source.uri);
           setAddedWebSources(prev => [...prev, source]);
+      } catch (e) {
+          console.error("Tentativa de adicionar URL inválida:", source.uri);
+          alert(`O link da fonte "${source.title}" é inválido e não pode ser adicionado.`);
       }
   };
 
