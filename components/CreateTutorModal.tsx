@@ -154,7 +154,7 @@ const CreateTutorModal: React.FC<CreateTutorModalProps> = ({ onClose, onSave, ex
         const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
         const response = await ai.models.generateContent({
             model: "gemini-2.5-flash",
-            contents: `Para o tópico "${searchQuery}", encontre as fontes mais relevantes. Para cada fonte, extraia um trecho de texto que melhor resuma o seu conteúdo. Construa sua resposta final combinando esses trechos em um resumo coeso.`,
+            contents: `Faça uma busca aprofundada na web sobre "${searchQuery}". Para cada fonte de informação encontrada, é essencial que você extraia um snippet de texto conciso que resuma o conteúdo daquela fonte para ser incluído nos metadados da resposta.`,
             config: {
                 tools: [{ googleSearch: {} }],
             },
